@@ -3,6 +3,8 @@ import { parseWestpacPDF } from '@/lib/parsers/westpac-pdf';
 import { parseCSV } from '@/lib/parsers/csv';
 import { categorize } from '@/lib/categorizer';
 
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const form = await request.formData();
   const file = form.get('file') as File | null;
