@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# financial documents / personal data
+Design/
+
+# devcontainer (local dev only)
+.devcontainer/
