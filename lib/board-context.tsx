@@ -19,7 +19,7 @@ export interface Board {
 interface BoardContextValue {
   boards: Board[];
   activeBoard: Board | null;
-  setActiveBoard: (board: Board) => void;
+  setActiveBoard: (board: Board | null) => void;
   reload: () => void;
   loading: boolean;
 }

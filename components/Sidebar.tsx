@@ -17,6 +17,7 @@ export default function Sidebar({ username }: { username: string }) {
   const [newBoardName, setNewBoardName] = useState('');
   const [creating, setCreating] = useState(false);
   const [boardError, setBoardError] = useState('');
+  const [confirmDeleteBoard, setConfirmDeleteBoard] = useState<number | null>(null);
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMemberUsername, setNewMemberUsername] = useState('');
   const [addingMember, setAddingMember] = useState(false);
@@ -57,6 +58,13 @@ export default function Sidebar({ username }: { username: string }) {
       .then(r => r.ok ? r.json() : [])
       .then(setBalance);
   }, [activeBoard]);
+
+  async function deleteBoard(boardId: number) {
+    await fetch(`/api/boards/${boardId}`, { method: 'DELETE' });
+    setConfirmDeleteBoard(null);
+    if (activeBoard?.id === boardId) setActiveBoard(null);
+    await reload();
+  }
 
   async function addMember() {
     if (!newMemberUsername.trim() || !activeBoard) return;
@@ -104,17 +112,46 @@ export default function Sidebar({ username }: { username: string }) {
           ) : (
             <div className="space-y-0.5">
               {boards.map((board) => (
-                <button
-                  key={board.id}
-                  onClick={() => setActiveBoard(board)}
-                  className={`w-full text-left text-sm px-2 py-1.5 rounded-lg truncate transition-colors ${
-                    activeBoard?.id === board.id
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                  }`}
-                >
-                  {board.name}
-                </button>
+                <div key={board.id}>
+                  <div className="flex items-center group">
+                    <button
+                      onClick={() => setActiveBoard(board)}
+                      className={`flex-1 text-left text-sm px-2 py-1.5 rounded-lg truncate transition-colors ${
+                        activeBoard?.id === board.id
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                      }`}
+                    >
+                      {board.name}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteBoard(confirmDeleteBoard === board.id ? null : board.id)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 text-xs px-1 transition-all"
+                      title="Delete board"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {confirmDeleteBoard === board.id && (
+                    <div className="mx-1 mb-1 p-2 bg-gray-800 rounded-lg border border-red-900/50">
+                      <p className="text-xs text-gray-300 mb-2">Delete &quot;{board.name}&quot;? All expenses will be removed.</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => deleteBoard(board.id)}
+                          className="flex-1 text-xs bg-red-700 hover:bg-red-600 text-white py-1 rounded transition-colors"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteBoard(null)}
+                          className="flex-1 text-xs bg-gray-700 hover:bg-gray-600 text-white py-1 rounded transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}

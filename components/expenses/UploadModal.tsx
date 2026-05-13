@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import type { Category } from './ExpensesPage';
 import type { BoardMember } from '@/lib/board-context';
+import PreviewSplitModal, { type PreviewSplitEntry } from './PreviewSplitModal';
 
 interface ParsedExpense {
   date: string;
@@ -11,6 +12,8 @@ interface ParsedExpense {
   amount: string;
   categoryId: number | null;
   name?: string | null;
+  paidByUserId?: number | null;
+  splits?: PreviewSplitEntry[] | null;
 }
 
 function fmt(amount: string) {
@@ -39,9 +42,10 @@ export default function UploadModal({
   const [editedExpenses, setEditedExpenses] = useState<ParsedExpense[]>([]);
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
-  const [paidByUserId, setPaidByUserId] = useState<string>('');
+  const [globalPayer, setGlobalPayer] = useState<string>('');
+  const [splitRowIndex, setSplitRowIndex] = useState<number | null>(null);
 
-  const effectivePayer = paidByUserId || String(currentUserId ?? '');
+  const effectiveGlobalPayer = globalPayer || String(currentUserId ?? '');
 
   function applyDateFilter(expenses: ParsedExpense[], from: string, to: string) {
     return expenses.filter((e) => {
@@ -61,10 +65,26 @@ export default function UploadModal({
     if (!r.ok) {
       setError(data.error ?? 'Parse failed');
     } else {
+      const filtered = applyDateFilter(data.expenses, filterFrom, filterTo);
+      // Pre-fill paidByUserId from the name field if it matches a member
+      const withPayer = filtered.map((e: ParsedExpense) => {
+        if (!e.name || members.length === 0) return e;
+        const match = members.find((m) =>
+          m.user.username.toLowerCase().includes(e.name!.toLowerCase().split(' ').pop()!) ||
+          e.name!.toLowerCase().includes(m.user.username.toLowerCase())
+        );
+        return { ...e, paidByUserId: match ? match.userId : Number(effectiveGlobalPayer) || null };
+      });
       setParsed(data.expenses);
-      setEditedExpenses(applyDateFilter(data.expenses, filterFrom, filterTo));
+      setEditedExpenses(withPayer);
     }
     setLoading(false);
+  }
+
+  // When global payer changes, update all rows that haven't been individually changed
+  function handleGlobalPayerChange(newPayer: string) {
+    setGlobalPayer(newPayer);
+    setEditedExpenses((prev) => prev.map((e) => ({ ...e, paidByUserId: Number(newPayer) || null })));
   }
 
   async function importAll() {
@@ -75,7 +95,7 @@ export default function UploadModal({
       body: JSON.stringify({
         expenses: editedExpenses,
         boardId,
-        paidByUserId: effectivePayer ? Number(effectivePayer) : null,
+        paidByUserId: effectiveGlobalPayer ? Number(effectiveGlobalPayer) : null,
       }),
     });
     if (r.ok) {
@@ -99,7 +119,7 @@ export default function UploadModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-gray-800">
           <h2 className="text-lg font-bold text-white">Upload Statement</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">×</button>
@@ -128,10 +148,10 @@ export default function UploadModal({
                 {members.length > 0 && (
                   <>
                     <span className="text-gray-600 text-sm">·</span>
-                    <span className="text-sm text-gray-400">Paid by:</span>
+                    <span className="text-sm text-gray-400">Default paid by:</span>
                     <select
-                      value={effectivePayer}
-                      onChange={(e) => setPaidByUserId(e.target.value)}
+                      value={effectiveGlobalPayer}
+                      onChange={(e) => setGlobalPayer(e.target.value)}
                       className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       {members.map((m) => (
@@ -174,17 +194,17 @@ export default function UploadModal({
           ) : (
             <>
               <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
                   <p className="text-gray-300 text-sm">
                     Found <span className="text-white font-semibold">{editedExpenses.length}</span> expenses.
-                    Review and adjust categories before importing.
+                    Review and adjust before importing.
                   </p>
                   {members.length > 0 && (
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-400">Paid by:</span>
+                      <span className="text-sm text-gray-400">Set all paid by:</span>
                       <select
-                        value={effectivePayer}
-                        onChange={(e) => setPaidByUserId(e.target.value)}
+                        value={effectiveGlobalPayer}
+                        onChange={(e) => handleGlobalPayerChange(e.target.value)}
                         className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                       >
                         {members.map((m) => (
@@ -212,6 +232,8 @@ export default function UploadModal({
                     <th className="text-left py-2 px-3 text-gray-400 font-medium">Name</th>
                     <th className="text-right py-2 px-3 text-gray-400 font-medium">Amount</th>
                     <th className="text-left py-2 px-3 text-gray-400 font-medium">Category</th>
+                    {members.length > 0 && <th className="text-left py-2 px-3 text-gray-400 font-medium">Paid by</th>}
+                    {members.length > 0 && <th className="text-left py-2 px-3 text-gray-400 font-medium">Split</th>}
                     <th className="py-2 px-3" />
                   </tr>
                 </thead>
@@ -234,9 +256,7 @@ export default function UploadModal({
                           onChange={(e) => updateRow(i, { categoryId: Number(e.target.value) || null })}
                           className="bg-gray-800 border border-gray-700 text-white text-xs rounded px-2 py-1"
                           style={{
-                            borderLeftColor: expense.categoryId
-                              ? catById[expense.categoryId]?.color
-                              : '#6B7280',
+                            borderLeftColor: expense.categoryId ? catById[expense.categoryId]?.color : '#6B7280',
                             borderLeftWidth: 3,
                           }}
                         >
@@ -246,6 +266,39 @@ export default function UploadModal({
                           ))}
                         </select>
                       </td>
+                      {members.length > 0 && (
+                        <td className="py-2 px-3">
+                          <select
+                            value={expense.paidByUserId ?? effectiveGlobalPayer}
+                            onChange={(e) => updateRow(i, { paidByUserId: Number(e.target.value) || null })}
+                            className="bg-gray-800 border border-gray-700 text-white text-xs rounded px-2 py-1"
+                          >
+                            {members.map((m) => (
+                              <option key={m.userId} value={m.userId}>
+                                {m.user.username}{m.userId === currentUserId ? ' (you)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
+                      {members.length > 0 && (
+                        <td className="py-2 px-3">
+                          <button
+                            onClick={() => setSplitRowIndex(i)}
+                            className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                              expense.splits
+                                ? 'bg-indigo-900/60 text-indigo-300 hover:bg-indigo-800/60'
+                                : 'text-gray-500 hover:text-indigo-400'
+                            }`}
+                          >
+                            {expense.splits
+                              ? expense.splits.length === 1
+                                ? `Solo · ${members.find(m => m.userId === expense.splits![0].userId)?.user.username ?? '?'}`
+                                : `${expense.splits[0].splitMode === 'even' ? 'Even' : 'Custom'} · ${expense.splits.length}p`
+                              : '+ Split'}
+                          </button>
+                        </td>
+                      )}
                       <td className="py-2 px-3 text-right">
                         <button
                           onClick={() => removeRow(i)}
@@ -261,6 +314,20 @@ export default function UploadModal({
             </>
           )}
         </div>
+
+        {splitRowIndex !== null && editedExpenses[splitRowIndex] && (
+          <PreviewSplitModal
+            expenseTitle={editedExpenses[splitRowIndex].title}
+            expenseAmount={editedExpenses[splitRowIndex].amount}
+            members={members}
+            initial={editedExpenses[splitRowIndex].splits}
+            onConfirm={(splits) => {
+              updateRow(splitRowIndex, { splits });
+              setSplitRowIndex(null);
+            }}
+            onClose={() => setSplitRowIndex(null)}
+          />
+        )}
 
         {parsed && (
           <div className="flex items-center justify-between p-5 border-t border-gray-800">
