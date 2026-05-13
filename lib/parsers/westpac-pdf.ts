@@ -1,9 +1,31 @@
-import { extractText, getDocumentProxy } from 'unpdf';
+import { getDocumentProxy } from 'unpdf';
 
 async function extractPDFText(buffer: Buffer): Promise<string> {
   const pdf = await getDocumentProxy(new Uint8Array(buffer));
-  const { text } = await extractText(pdf, { mergePages: true });
-  return text;
+  const lines: string[] = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+
+    // Group text items by rounded Y position to reconstruct rows
+    const byY = new Map<number, string[]>();
+    for (const item of content.items) {
+      if ('str' in item && item.str.trim()) {
+        const y = Math.round((item as { transform: number[] }).transform[5]);
+        if (!byY.has(y)) byY.set(y, []);
+        byY.get(y)!.push(item.str);
+      }
+    }
+
+    // Sort Y descending (PDF y=0 is bottom, so higher = earlier in document)
+    const sorted = Array.from(byY.entries()).sort((a, b) => b[0] - a[0]);
+    for (const [, items] of sorted) {
+      lines.push(items.join(' '));
+    }
+  }
+
+  return lines.join('\n');
 }
 
 export interface RawTransaction {
@@ -30,7 +52,7 @@ const SKIP_PATTERNS = [
 
 export async function parseWestpacPDF(buffer: Buffer): Promise<RawTransaction[]> {
   const text = await extractPDFText(buffer);
-  const lines = text.split('\n').map((l: string) => l.trim()).filter(Boolean);
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 
   const DATE_RE = /^(\d{2}\s+[A-Za-z]{3}\s+\d{4})\s+(.+?)\s+(-?\$[\d,]+\.\d{2})\s*(-?\$[\d,]+\.\d{2})?$/;
 
