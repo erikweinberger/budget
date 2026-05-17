@@ -2,12 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { parseWestpacPDF } from '@/lib/parsers/westpac-pdf';
 import { parseCSV } from '@/lib/parsers/csv';
 import { categorize } from '@/lib/categorizer';
+import { db } from '@/lib/db';
+import { expenses } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export const maxDuration = 60;
+
+function dupKey(date: string, amount: string, title: string) {
+  return `${date}|${parseFloat(amount).toFixed(2)}|${title.toLowerCase().trim()}`;
+}
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
   const file = form.get('file') as File | null;
+  const boardId = form.get('boardId') ? Number(form.get('boardId')) : null;
+
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -34,5 +43,22 @@ export async function POST(request: NextRequest) {
 
   const categorized = await categorize(parsed);
 
-  return NextResponse.json({ expenses: categorized, count: categorized.length });
+  // Build a set of existing expense keys for this board
+  const existingKeys = new Set<string>();
+  if (boardId) {
+    const existing = await db
+      .select({ date: expenses.date, amount: expenses.amount, title: expenses.title })
+      .from(expenses)
+      .where(eq(expenses.boardId, boardId));
+    for (const e of existing) {
+      existingKeys.add(dupKey(e.date, e.amount, e.title));
+    }
+  }
+
+  const withDupFlag = categorized.map((e) => ({
+    ...e,
+    isDuplicate: existingKeys.has(dupKey(e.date, e.amount, e.title)),
+  }));
+
+  return NextResponse.json({ expenses: withDupFlag, count: withDupFlag.length });
 }
