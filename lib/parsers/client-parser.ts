@@ -1,5 +1,3 @@
-import { getDocumentProxy } from 'unpdf';
-
 export interface RawTransaction {
   date: string;
   description: string;
@@ -20,11 +18,16 @@ function parseDate(raw: string): string {
 const SKIP_PATTERNS = [/^C\d+\s+TFR FROM/i, /^CRED VOUCHER/i];
 
 async function extractPDFLines(buffer: ArrayBuffer): Promise<string[]> {
-  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const pdfjs = await import('pdfjs-dist');
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
   const lines: string[] = [];
+
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
+
     const byY = new Map<number, string[]>();
     for (const item of content.items) {
       if ('str' in item && item.str.trim()) {
@@ -33,9 +36,11 @@ async function extractPDFLines(buffer: ArrayBuffer): Promise<string[]> {
         byY.get(y)!.push(item.str);
       }
     }
+
     const sorted = Array.from(byY.entries()).sort((a, b) => b[0] - a[0]);
     for (const [, items] of sorted) lines.push(items.join(' '));
   }
+
   return lines;
 }
 
@@ -43,19 +48,23 @@ function parseWestpacLines(lines: string[]): RawTransaction[] {
   const DATE_RE =
     /^(\d{2}\s+[A-Za-z]{3}\s+\d{4})\s+(.+?)\s+(-?\$[\d,]+\.\d{2})\s*(-?\$[\d,]+\.\d{2})?$/;
   const out: RawTransaction[] = [];
+
   for (const line of lines) {
     const m = line.match(DATE_RE);
     if (!m) continue;
     const [, rawDate, description, col1, col2] = m;
     if (SKIP_PATTERNS.some((p) => p.test(description.trim()))) continue;
+
     const val1 = parseFloat(col1.replace(/[$,]/g, ''));
     const val2 = col2 ? parseFloat(col2.replace(/[$,]/g, '')) : NaN;
     let debit: number | null = null;
     if (val1 < 0) debit = Math.abs(val1);
     else if (!isNaN(val2) && val2 < 0) debit = Math.abs(val2);
     if (debit === null) continue;
+
     out.push({ date: parseDate(rawDate), description: description.trim(), amount: debit.toFixed(2) });
   }
+
   return out;
 }
 
@@ -112,9 +121,11 @@ function parseCSVClient(content: string): RawTransaction[] {
       const dmy = isoDate.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
       if (dmy) isoDate = `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
     }
+
     const name = (nameIdx >= 0 ? row[nameIdx]?.trim() : undefined) || undefined;
     out.push({ date: isoDate, description, amount: amount.toFixed(2), name });
   }
+
   return out;
 }
 
