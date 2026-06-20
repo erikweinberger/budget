@@ -150,26 +150,48 @@ export default function UploadModal({
   async function handleFile(file: File) {
     setLoading(true);
     setError('');
-    const form = new FormData();
-    form.append('file', file);
-    form.append('boardId', String(boardId));
-    const r = await fetch('/api/expenses/upload', { method: 'POST', body: form });
-    const data = await r.json();
-    if (!r.ok) {
-      setError(data.error ?? 'Parse failed');
-    } else {
-      const filtered = applyDateFilter(data.expenses, filterFrom, filterTo);
-      const withPayer = filtered.map((e: ParsedExpense) => {
-        if (!e.name || members.length === 0) return e;
-        const match = members.find((m) =>
-          m.user.username.toLowerCase().includes(e.name!.toLowerCase().split(' ').pop()!) ||
-          e.name!.toLowerCase().includes(m.user.username.toLowerCase())
-        );
-        return { ...e, paidByUserId: match ? match.userId : Number(effectiveGlobalPayer) || null };
+    try {
+      const { parseFileClient } = await import('@/lib/parsers/client-parser');
+      const raw = await parseFileClient(file);
+
+      if (raw.length === 0) {
+        setError('No transactions found in this file.');
+        setLoading(false);
+        return;
+      }
+
+      const transactions = raw.map((t) => ({
+        date: t.date,
+        title: t.description.replace(/\s+[A-Z\s]+\s+AUS\s*$/i, '').replace(/\s+AUS\s*$/i, '').trim(),
+        rawDescription: t.description,
+        amount: t.amount,
+        name: t.name ?? null,
+      }));
+
+      const r = await fetch('/api/expenses/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transactions, boardId }),
       });
-      setParsed(data.expenses);
-      setEditedExpenses(withPayer);
-      setIncludedDupIndices(new Set());
+      const data = await r.json();
+      if (!r.ok) {
+        setError(data.error ?? 'Parse failed');
+      } else {
+        const filtered = applyDateFilter(data.expenses, filterFrom, filterTo);
+        const withPayer = filtered.map((e: ParsedExpense) => {
+          if (!e.name || members.length === 0) return e;
+          const match = members.find((m) =>
+            m.user.username.toLowerCase().includes(e.name!.toLowerCase().split(' ').pop()!) ||
+            e.name!.toLowerCase().includes(m.user.username.toLowerCase())
+          );
+          return { ...e, paidByUserId: match ? match.userId : Number(effectiveGlobalPayer) || null };
+        });
+        setParsed(data.expenses);
+        setEditedExpenses(withPayer);
+        setIncludedDupIndices(new Set());
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to parse file');
     }
     setLoading(false);
   }
