@@ -117,11 +117,8 @@ export default function ExpensesPage() {
   }
 
   function isFullySettled(e: Expense) {
-    if (!e.splits || e.splits.length === 0 || currentUserId === null) return false;
-    const mySplit = e.splits.find(s => s.userId === currentUserId);
-    if (!mySplit?.resolved) return false;
-    if (e.paidByUserId === currentUserId) return e.splits.every(s => s.resolved);
-    return true;
+    if (!e.splits || e.splits.length === 0) return true;
+    return e.splits.every(s => s.resolved);
   }
 
   if (!activeBoard) {
